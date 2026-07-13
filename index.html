@@ -831,10 +831,20 @@ let createColor = AVATAR_COLORS[0];
 //  Codes encode all data inside them (base64 JSON) so they work
 //  across different browsers/devices — no shared database needed.
 // ═══════════════════════════════════════════
-function makeToken(data){ return btoa(unescape(encodeURIComponent(JSON.stringify(data)))); }
+function makeToken(data){
+  // encodeURIComponent makes it ASCII-safe, btoa encodes to base64
+  // replace +/= so it survives copy/paste through messaging apps
+  return btoa(encodeURIComponent(JSON.stringify(data)))
+    .replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
 function readToken(token){
-  try{ return JSON.parse(decodeURIComponent(escape(atob(token.trim())))); }
-  catch(e){ return null; }
+  try{
+    if(!token) return null;
+    // Restore standard base64 from URL-safe variant
+    let b64=token.trim().replace(/-/g,'+').replace(/_/g,'/');
+    while(b64.length%4) b64+='=';
+    return JSON.parse(decodeURIComponent(atob(b64)));
+  }catch(e){ return null; }
 }
 
 // ═══════════════════════════════════════════
@@ -879,7 +889,8 @@ function getMyGroups(){
   const cu=getCurrentUser();
   if(!cu) return [];
   const groups=getGroups();
-  return groups.filter(g=>(cu.groupIds||[]).includes(g.id)||g.createdBy===cu.email);
+  // Only groupIds — createdBy alone is NOT enough, leaving must fully remove you
+  return groups.filter(g=>(cu.groupIds||[]).includes(g.id));
 }
 function createGroup(name){
   const cu=getCurrentUser(); if(!cu) return null;
@@ -917,6 +928,10 @@ function leaveGroup(groupId){
   if(idx<0) return;
   users[idx].groupIds=(users[idx].groupIds||[]).filter(x=>x!==groupId);
   saveUsers(users);
+  // Remove the group record locally (it can always be rejoined via invite code)
+  const groups=getGroups().filter(g=>g.id!==groupId);
+  saveGroups(groups);
+  refreshGroupSelector();
 }
 function getGroupMembers(groupId){
   return getUsers().filter(u=>(u.groupIds||[]).includes(groupId));
