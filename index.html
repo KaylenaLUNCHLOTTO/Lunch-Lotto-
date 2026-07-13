@@ -701,7 +701,7 @@ body.dark .discover-added { background:#1a3b2a; color:#4ade80; }
 const FIREBASE_CONFIG = {
   apiKey:      'AIzaSyDWcJxXELjB31N1nfyj-KFujuI75MlWnB4',
   databaseURL: 'https://lunch-lotto-817db-default-rtdb.firebaseio.com',   // e.g. https://lunch-lotto-xyz-default-rtdb.firebaseio.com
-  projectId:   'lunch-lotto-817db',
+  projectId:   'lunch-lotto-817d',
 };
 const FB_READY = !!(FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.databaseURL);
 let _fbDb = null;
@@ -881,7 +881,7 @@ function getMyGroups(){
   const cu=getCurrentUser();
   if(!cu) return [];
   const groups=getGroups();
-  return groups.filter(g=>(cu.groupIds||[]).includes(g.id)||g.createdBy===cu.email);
+  return groups.filter(g=>(cu.groupIds||[]).includes(g.id));
 }
 function createGroup(name){
   const cu=getCurrentUser(); if(!cu) return null;
@@ -1054,6 +1054,12 @@ function leaveGroup(groupId){
   if(idx<0) return;
   users[idx].groupIds=(users[idx].groupIds||[]).filter(x=>x!==groupId);
   saveUsers(users);
+  // Remove from local groups list so it no longer appears
+  const groups=getGroups().filter(g=>g.id!==groupId);
+  saveGroups(groups);
+  // Remove from Firebase membership if connected
+  if(FB_READY && id) fbRef('groups/'+groupId+'/members/'+id).remove().catch(()=>{});
+  refreshGroupSelector();
 }
 function getGroupMembers(groupId){
   return getUsers().filter(u=>(u.groupIds||[]).includes(groupId));
