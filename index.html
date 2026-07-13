@@ -314,11 +314,11 @@ body.dark .discover-added { background:#1a3b2a; color:#4ade80; }
       </div>
       <div class="form-group" style="margin-bottom:9px;">
         <label>Email Address</label>
-        <input class="input" id="signinEmail" type="email" placeholder="you@example.com" onkeydown="if(event.key==='Enter')document.getElementById('signinPassword').focus()"/>
+        <input class="input" id="signinEmail" type="email" autocomplete="email" placeholder="you@example.com" onkeydown="if(event.key==='Enter')document.getElementById('signinPassword').focus()"/>
       </div>
       <div class="form-group" style="margin-bottom:16px;position:relative;">
         <label>Password</label>
-        <input class="input" id="signinPassword" type="password" placeholder="Your password" onkeydown="if(event.key==='Enter')signIn()" style="padding-right:38px;"/>
+        <input class="input" id="signinPassword" type="password" autocomplete="current-password" placeholder="Your password" onkeydown="if(event.key==='Enter')signIn()" style="padding-right:38px;"/>
         <span onclick="togglePw('signinPassword',this)" style="position:absolute;right:10px;bottom:9px;cursor:pointer;font-size:0.88rem;color:var(--text-muted);">👁</span>
       </div>
       <button class="btn btn-primary" style="width:100%;padding:12px;" onclick="signIn()">Sign In →</button>
@@ -395,20 +395,20 @@ body.dark .discover-added { background:#1a3b2a; color:#4ade80; }
       </div>
       <div class="form-group" style="margin-bottom:7px;">
         <label>Your Name</label>
-        <input class="input" id="createName" type="text" placeholder="e.g. Kaylena" maxlength="20"/>
+        <input class="input" id="createName" type="text" autocomplete="name" placeholder="e.g. Kaylena" maxlength="20"/>
       </div>
       <div class="form-group" style="margin-bottom:7px;">
         <label>Email Address</label>
-        <input class="input" id="createEmail" type="email" placeholder="you@example.com"/>
+        <input class="input" id="createEmail" type="email" autocomplete="email" placeholder="you@example.com"/>
       </div>
       <div class="form-group" style="margin-bottom:7px;position:relative;">
         <label>Password</label>
-        <input class="input" id="createPassword" type="password" placeholder="Min. 6 characters" style="padding-right:38px;"/>
+        <input class="input" id="createPassword" type="password" autocomplete="new-password" placeholder="Min. 6 characters" style="padding-right:38px;"/>
         <span onclick="togglePw('createPassword',this)" style="position:absolute;right:10px;bottom:9px;cursor:pointer;font-size:0.85rem;color:var(--text-muted);">👁</span>
       </div>
       <div class="form-group" style="margin-bottom:10px;position:relative;">
         <label>Confirm Password</label>
-        <input class="input" id="createPasswordConfirm" type="password" placeholder="Repeat password" style="padding-right:38px;"/>
+        <input class="input" id="createPasswordConfirm" type="password" autocomplete="new-password" placeholder="Repeat password" style="padding-right:38px;"/>
         <span onclick="togglePw('createPasswordConfirm',this)" style="position:absolute;right:10px;bottom:9px;cursor:pointer;font-size:0.85rem;color:var(--text-muted);">👁</span>
       </div>
       <div class="form-group" style="margin-bottom:14px;">
@@ -1015,8 +1015,8 @@ async function createCompanyFB(name, creatorEmail){
   return {id,code,name};
 }
 
-async function joinCompanyFB(codeOrToken){
-  const cu=getCurrentUser(); if(!cu) return null;
+async function joinCompanyFB(codeOrToken, overrideUser){
+  const cu=overrideUser||getCurrentUser(); if(!cu) return null;
   const code=codeOrToken.trim().toUpperCase();
   if(FB_READY){
     try {
@@ -1032,14 +1032,14 @@ async function joinCompanyFB(codeOrToken){
           if(!companies.find(c=>c.id===compId)){ companies.push({id:compId,...data}); saveCompanies(companies); }
           const users=getUsers(), idx=users.findIndex(u=>u.id===cu.id);
           if(idx>=0){ users[idx].companyId=compId; saveUsers(users); }
-          return data;
+          return {id:compId,...data};
         }
       }
     } catch(e){}
   }
-  // Fallback: local code lookup
+  // Fallback: local code lookup (case-insensitive)
   const companies=getCompanies();
-  const comp=companies.find(c=>c.code===code);
+  const comp=companies.find(c=>(c.code||'').toUpperCase()===code);
   if(comp){
     const users=getUsers(), idx=users.findIndex(u=>u.id===cu.id);
     if(idx>=0){ users[idx].companyId=comp.id; saveUsers(users); }
@@ -1436,19 +1436,16 @@ async function createProfile(){
   // Company tab
   const activeCompTab=['join','create','skip'].find(t=>document.getElementById('compTab-'+t)?.classList.contains('active'))||'skip';
   let companyId=null;
-  const companies=getCompanies();
+  let joinCode=null;
 
+  // Validate join/create fields before touching users
   if(activeCompTab==='join'){
-    const code=(document.getElementById('joinCompCode')?.value||'').trim();
-    // Try Firebase short code then local lookup
-    const joinResult=await joinCompanyFB(code);
-    if(!joinResult){err.style.display='block';err.textContent='Company code not found. Check the code and try again.';return;}
-    companyId=joinResult.id;
+    joinCode=(document.getElementById('joinCompCode')?.value||'').trim();
+    if(!joinCode){err.style.display='block';err.textContent='Enter a company invite code.';return;}
   } else if(activeCompTab==='create'){
     const compName=(document.getElementById('createCompName')?.value||'').trim();
     if(!compName){err.style.display='block';err.textContent='Enter your company name.';return;}
     const compResult=await createCompanyFB(compName, email);
-    companies.length=0; getCompanies().forEach(c=>companies.push(c)); // refresh reference
     companyId=compResult.id;
   }
 
@@ -1456,9 +1453,25 @@ async function createProfile(){
   const pwHash=await hashPassword(pw);
   const users=getUsers();
   const user={id:uid(),name,email,pwHash,color:createColor,orders:{},city,companyId,settings:{accentColor:createColor,darkMode:false}};
+  // Save user to session FIRST so getCurrentUser() works inside joinCompanyFB
   users.push(user);
   saveUsers(users);
   localStorage.setItem('currentUser',user.id);
+
+  // Now join — user is saved so getCurrentUser() returns them
+  if(activeCompTab==='join'){
+    const joinResult=await joinCompanyFB(joinCode);
+    if(!joinResult){
+      // Roll back user creation on failure
+      saveUsers(getUsers().filter(u=>u.id!==user.id));
+      localStorage.removeItem('currentUser');
+      err.style.display='block';err.textContent='Company code not found. Check the code and try again.';return;
+    }
+    companyId=joinResult.id;
+    const pu=getUsers(), pi=pu.findIndex(u=>u.id===user.id);
+    if(pi>=0){ pu[pi].companyId=companyId; saveUsers(pu); user.companyId=companyId; }
+  }
+
   applyUserTheme(user);
   document.getElementById('loginModal').style.display='none';
   updateHeaderUser();
