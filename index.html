@@ -1048,6 +1048,54 @@ async function joinCompanyFB(codeOrToken, overrideUser){
   return null;
 }
 
+// ── FIREBASE MIGRATION ────────────────────────────────────────────
+// Pushes any locally-created companies & groups up to Firebase so
+// members on other devices can find them by code.
+async function migrateLocalDataToFirebase(){
+  if(!FB_READY) return;
+  const cu=getCurrentUser(); if(!cu) return;
+  try {
+    // --- Companies ---
+    const companies=getCompanies();
+    for(const comp of companies){
+      if(!comp.id||!comp.code) continue;
+      const snap=await fbRef('companies/'+comp.id).once('value');
+      if(!snap||!snap.exists()){
+        // Not in Firebase yet — push it up
+        await fbRef('companies/'+comp.id).set({
+          name:comp.name||'',
+          code:(comp.code||'').toUpperCase(),
+          createdBy:comp.createdBy||cu.email,
+          createdAt:comp.createdAt||Date.now()
+        });
+        // Register current user as a member
+        await fbRef('companies/'+comp.id+'/members/'+cu.id).set({
+          name:cu.name||cu.email, color:cu.color||'#e05c2a', joinedAt:Date.now()
+        });
+      }
+    }
+    // --- Groups ---
+    const groups=getGroups();
+    for(const grp of groups){
+      if(!grp.id||!grp.code) continue;
+      // Skip old long-token codes — only migrate short XX-XX style codes
+      if(grp.code.length>10) continue;
+      const snap=await fbRef('groups/'+grp.id).once('value');
+      if(!snap||!snap.exists()){
+        await fbRef('groups/'+grp.id).set({
+          name:grp.name||'',
+          code:(grp.code||'').toUpperCase(),
+          createdBy:grp.createdBy||cu.email,
+          createdAt:grp.createdAt||Date.now()
+        });
+        await fbRef('groups/'+grp.id+'/members/'+cu.id).set({
+          name:cu.name||cu.email, color:cu.color||'#e05c2a', joinedAt:Date.now()
+        });
+      }
+    }
+  } catch(e){ console.warn('Migration error:',e); }
+}
+
 function leaveGroup(groupId){
   const users=getUsers(), id=localStorage.getItem('currentUser');
   const idx=users.findIndex(u=>u.id===id);
@@ -1060,6 +1108,19 @@ function leaveGroup(groupId){
   // Remove from Firebase membership if connected
   if(FB_READY && id) fbRef('groups/'+groupId+'/members/'+id).remove().catch(()=>{});
   refreshGroupSelector();
+}
+function leaveCompany(){
+  if(!confirm('Leave this company? You can rejoin later with the invite code.')) return;
+  const users=getUsers(), id=localStorage.getItem('currentUser');
+  const idx=users.findIndex(u=>u.id===id);
+  if(idx<0) return;
+  const compId=users[idx].companyId;
+  users[idx].companyId=null;
+  saveUsers(users);
+  // Remove from Firebase membership
+  if(FB_READY && compId && id) fbRef('companies/'+compId+'/members/'+id).remove().catch(()=>{});
+  renderProfilePanel();
+  showToast('Left the company. You can rejoin anytime with the invite code.');
 }
 function getGroupMembers(groupId){
   return getUsers().filter(u=>(u.groupIds||[]).includes(groupId));
@@ -1296,13 +1357,27 @@ function switchCompTab(tab){
   });
 }
 
-function previewCompany(code){
+async function previewCompany(code){
   const el=document.getElementById('compPreview');
   if(!code||code.length<4){el.innerHTML='';return;}
-  const comp=getCompanies().find(c=>c.code===code.toUpperCase());
-  el.innerHTML=comp
-    ?`<span style="color:#15803d;font-weight:700;">✅ Found: ${comp.name}</span>`
-    :`<span style="color:#aaa;">No company found with that code yet.</span>`;
+  const upper=code.trim().toUpperCase();
+  // Check local first (instant)
+  const local=getCompanies().find(c=>(c.code||'').toUpperCase()===upper);
+  if(local){el.innerHTML=`<span style="color:#15803d;font-weight:700;">✅ Found: ${local.name}</span>`;return;}
+  // Check Firebase
+  if(FB_READY){
+    el.innerHTML=`<span style="color:#aaa;">Searching…</span>`;
+    try {
+      const snap=await fbRef('companies').orderByChild('code').equalTo(upper).once('value');
+      if(snap&&snap.exists()){
+        let name='';
+        snap.forEach(child=>{ name=child.val().name||''; });
+        el.innerHTML=`<span style="color:#15803d;font-weight:700;">✅ Found: ${name}</span>`;
+        return;
+      }
+    } catch(e){}
+  }
+  el.innerHTML=`<span style="color:#aaa;">No company found with that code.</span>`;
 }
 
 function togglePw(id, eye) {
@@ -1424,6 +1499,8 @@ async function signIn(){
   if(user.city && getRestaurants().length<3){
     setTimeout(()=>autoPopulateFromCity(user.city),500);
   }
+  // Silently push any local companies/groups to Firebase
+  setTimeout(()=>migrateLocalDataToFirebase(),1000);
 }
 
 async function createProfile(){
@@ -1907,6 +1984,7 @@ function renderProfilePanel(){
                 <span style="font-size:0.82rem;font-weight:700;flex:1;">${m.name}</span>
                 ${m.id===cu.id?'<span class="you-pill">You</span>':''}
               </div>`).join('')}
+            <button class="btn btn-sm btn-danger" style="width:100%;margin-top:10px;font-size:0.74rem;" onclick="leaveCompany()">Leave Company</button>
           </div>
         </div>`;
     })()}
