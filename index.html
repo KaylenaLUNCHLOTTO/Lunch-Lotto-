@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="theme-color" content="#e05c2a"/>
+<meta name="theme-color" content="#7c3aed"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-title" content="Lunch Lotto"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="default"/>
@@ -14,7 +14,7 @@
 <style>
 :root {
   color-scheme: light;
-  --accent:#e05c2a; --accent-light:#fff5f2; --accent-dark:#c94e20;
+  --accent:#7c3aed; --accent-light:rgba(124,58,237,0.10); --accent-dark:#6d28d9;
   --bg:#faf7f4; --card:#fff; --border:#f0ece8;
   --text:#1a1a1a; --text-muted:#888; --radius:14px; --shadow:0 2px 10px rgba(0,0,0,0.08);
 }
@@ -84,9 +84,9 @@ body.dark .avatar { box-shadow:0 0 0 2px var(--accent); }
 .pick-name { font-size:1.85rem; font-weight:900; color:var(--accent); }
 .pick-meta { font-size:0.86rem; color:var(--text-muted); margin-top:6px; display:flex; gap:6px; justify-content:center; flex-wrap:wrap; }
 .pick-hint { font-size:0.73rem; color:#bbb; margin-top:7px; }
-.order-guide { background:var(--accent-light); border:1.5px solid rgba(224,92,42,0.18); border-radius:var(--radius); padding:13px; margin-top:11px; text-align:left; }
+.order-guide { background:var(--accent-light); border:1.5px solid rgba(124,58,237,0.18); border-radius:var(--radius); padding:13px; margin-top:11px; text-align:left; }
 .order-guide-title { font-size:0.8rem; font-weight:700; color:var(--accent); margin-bottom:9px; }
-.order-row { display:flex; align-items:center; gap:9px; padding:5px 0; border-bottom:1px solid rgba(224,92,42,0.1); font-size:0.82rem; }
+.order-row { display:flex; align-items:center; gap:9px; padding:5px 0; border-bottom:1px solid rgba(124,58,237,0.1); font-size:0.82rem; }
 .order-row:last-child { border-bottom:none; }
 .order-person { font-weight:700; min-width:90px; display:flex; align-items:center; gap:6px; }
 .order-item { color:var(--text-muted); font-style:italic; }
@@ -212,7 +212,7 @@ body.dark .color-dot.selected { border-color:#fff; }
 .modal-tabs { display:flex; gap:0; border:1.5px solid var(--border); border-radius:10px; overflow:hidden; margin-bottom:18px; }
 .modal-tab { flex:1; padding:8px; text-align:center; font-size:0.82rem; font-weight:700; cursor:pointer; color:var(--text-muted); background:var(--bg); transition:all 0.15s; }
 .modal-tab.active { background:var(--accent); color:#fff; }
-.error-msg { color:#e05c2a; font-size:0.78rem; margin-top:6px; display:none; }
+.error-msg { color:#7c3aed; font-size:0.78rem; margin-top:6px; display:none; }
 
 /* DISCOVER */
 .discover-card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:13px 14px; margin-bottom:8px; display:flex; align-items:center; gap:12px; box-shadow:var(--shadow); }
@@ -501,7 +501,7 @@ body.dark .discover-added { background:#1a3b2a; color:#4ade80; }
   <div class="header-right">
     <div class="user-badge-wrap" id="headerUserBadgeWrap">
       <div class="user-badge" onclick="openPanel('profile')" id="headerUserBadge">
-        <div class="avatar" id="headerAvatar" style="background:#e05c2a">?</div>
+        <div class="avatar" id="headerAvatar" style="background:#7c3aed">?</div>
         <span class="user-badge-name" id="headerUserName">Sign In</span>
       </div>
       <div class="user-dropdown" id="userDropdown">
@@ -795,6 +795,8 @@ function uSet(key, val) {
   if (!users[idx].settings) users[idx].settings = {};
   users[idx].settings[key] = val;
   saveUsers(users);
+  // Sync setting to Firebase so it persists across devices
+  if(FB_READY && id) fbRef('users/'+id+'/settings/'+key).set(val).catch(()=>{});
 }
 
 // ═══════════════════════════════════════════
@@ -841,7 +843,7 @@ function toggleDark(){
 function applyUserTheme(user){
   if(!user) return;
   const dark = user.settings?.darkMode ?? false;
-  const accent = user.settings?.accentColor ?? user.color ?? '#e05c2a';
+  const accent = user.settings?.accentColor ?? user.color ?? '#7c3aed';
   applyDark(dark, false);
   applyAccent(accent, false);
 }
@@ -905,15 +907,21 @@ function joinGroup(code){
   return g;
 }
 // ── FIREBASE GROUP OPERATIONS ─────────────────────────────────────────────────
-async function createGroupFB(name){
+async function createGroupFB(name, isCompanyGroup=false){
   const cu=getCurrentUser(); if(!cu) return null;
   const id=uid(), code=genShortCode();
+  const companyId=(isCompanyGroup && cu.companyId) ? cu.companyId : null;
   const data={id,name,code,createdBy:cu.email,createdAt:Date.now()};
+  if(companyId) data.companyId=companyId;
   if(FB_READY){
     await fbRef('groups/'+id).set(data);
     await fbRef('groups/'+id+'/members/'+cu.id).set({
-      name:cu.name||cu.email,color:cu.color||'#e05c2a',joinedAt:Date.now()
+      name:cu.name||cu.email,color:cu.color||'#7c3aed',joinedAt:Date.now()
     });
+    // Also store under company node so members can discover it
+    if(companyId){
+      await fbRef('companies/'+companyId+'/groups/'+id).set(data);
+    }
   }
   const groups=getGroups();
   if(!groups.find(g=>g.id===id)){ groups.push({...data,memberCount:1}); saveGroups(groups); }
@@ -923,7 +931,19 @@ async function createGroupFB(name){
     if(!users[idx].groupIds.includes(id)) users[idx].groupIds.push(id);
     saveUsers(users);
   }
-  return {id,name,code};
+  return {id,name,code,companyId};
+}
+
+// Load all groups for the user's company from Firebase
+async function loadCompanyGroupsFromFB(){
+  const cu=getCurrentUser(); if(!cu||!cu.companyId||!FB_READY) return [];
+  try {
+    const snap=await fbRef('companies/'+cu.companyId+'/groups').once('value');
+    if(!snap||!snap.exists()) return [];
+    const compGroups=[];
+    snap.forEach(child=>{ compGroups.push({id:child.key,...child.val()}); });
+    return compGroups;
+  } catch(e){ return []; }
 }
 
 async function joinGroupFB(codeOrToken){
@@ -937,7 +957,7 @@ async function joinGroupFB(codeOrToken){
         snap.forEach(child=>{ groupData=child.val(); groupId=child.key; });
         if(groupData){
           await fbRef('groups/'+groupId+'/members/'+cu.id).set({
-            name:cu.name||cu.email,color:cu.color||'#e05c2a',joinedAt:Date.now()
+            name:cu.name||cu.email,color:cu.color||'#7c3aed',joinedAt:Date.now()
           });
           const groups=getGroups();
           if(!groups.find(g=>g.id===groupId)){ groups.push({id:groupId,...groupData}); saveGroups(groups); }
@@ -978,7 +998,7 @@ async function getGroupMemberCount(groupId){
 async function recordMealInGroups(restaurantName){
   const cu=getCurrentUser(); if(!cu||!FB_READY) return;
   const week=wk();
-  const mealData={restaurant:restaurantName,name:cu.name||cu.email,color:cu.color||'#e05c2a',time:Date.now()};
+  const mealData={restaurant:restaurantName,name:cu.name||cu.email,color:cu.color||'#7c3aed',time:Date.now()};
   // Record in each group
   const myGroups=getMyGroups();
   for(const g of myGroups){
@@ -1007,7 +1027,7 @@ async function createCompanyFB(name, creatorEmail){
     await fbRef('companies/'+id).set(data);
     const cu=getCurrentUser();
     if(cu) await fbRef('companies/'+id+'/members/'+cu.id).set({
-      name:cu.name||cu.email,color:cu.color||'#e05c2a',joinedAt:Date.now()
+      name:cu.name||cu.email,color:cu.color||'#7c3aed',joinedAt:Date.now()
     });
   }
   const companies=getCompanies();
@@ -1026,7 +1046,7 @@ async function joinCompanyFB(codeOrToken, overrideUser){
         snap.forEach(child=>{ data=child.val(); compId=child.key; });
         if(data){
           await fbRef('companies/'+compId+'/members/'+cu.id).set({
-            name:cu.name||cu.email,color:cu.color||'#e05c2a',joinedAt:Date.now()
+            name:cu.name||cu.email,color:cu.color||'#7c3aed',joinedAt:Date.now()
           });
           const companies=getCompanies();
           if(!companies.find(c=>c.id===compId)){ companies.push({id:compId,...data}); saveCompanies(companies); }
@@ -1070,7 +1090,7 @@ async function migrateLocalDataToFirebase(){
         });
         // Register current user as a member
         await fbRef('companies/'+comp.id+'/members/'+cu.id).set({
-          name:cu.name||cu.email, color:cu.color||'#e05c2a', joinedAt:Date.now()
+          name:cu.name||cu.email, color:cu.color||'#7c3aed', joinedAt:Date.now()
         });
       }
     }
@@ -1089,7 +1109,7 @@ async function migrateLocalDataToFirebase(){
           createdAt:grp.createdAt||Date.now()
         });
         await fbRef('groups/'+grp.id+'/members/'+cu.id).set({
-          name:cu.name||cu.email, color:cu.color||'#e05c2a', joinedAt:Date.now()
+          name:cu.name||cu.email, color:cu.color||'#7c3aed', joinedAt:Date.now()
         });
       }
     }
@@ -1441,14 +1461,19 @@ async function hashPassword(pw) {
 
 function buildColorPicker(containerId, onClick){
   const el=document.getElementById(containerId);
-  el.innerHTML=AVATAR_COLORS.map((c,i)=>
+  const swatches=AVATAR_COLORS.map((c,i)=>
     `<div class="color-dot${i===0?' selected':''}" style="background:${c}" onclick="${onClick}('${c}',this)"></div>`
   ).join('');
+  // Add a full RGB color wheel input at the end
+  el.innerHTML=swatches+`<label title="Custom color" style="cursor:pointer;"><div class="color-dot" id="${containerId}WheelDot" style="background:conic-gradient(red,yellow,lime,cyan,blue,magenta,red);border:2px solid var(--border);overflow:hidden;"><input type="color" id="${containerId}WheelInput" style="opacity:0;width:100%;height:100%;cursor:pointer;border:none;padding:0;" oninput="${onClick}(this.value,document.getElementById('${containerId}WheelDot'))"/></div></label>`;
 }
 function selectCreateColor(c,el){
   createColor=c;
   document.querySelectorAll('#createColorPicker .color-dot').forEach(d=>d.classList.remove('selected'));
   el.classList.add('selected');
+  // If it came from the wheel, tint the wheel dot to show the chosen color
+  const wheelDot=document.getElementById('createColorPickerWheelDot');
+  if(el===wheelDot) wheelDot.style.background=c;
 }
 function switchModalTab(tab){
   document.getElementById('signInForm').style.display  = tab==='signin'?'block':'none';
@@ -1512,6 +1537,28 @@ async function signIn(){
   }
   // Silently push any local companies/groups to Firebase
   setTimeout(()=>migrateLocalDataToFirebase(),1000);
+  // Sync restaurants with company and load orders/preferences
+  const _signedInUser=getCurrentUser();
+  if(_signedInUser){
+    setTimeout(()=>syncRestaurantsWithCompany(),1500);
+    setTimeout(()=>loadOrdersFromFB(_signedInUser.id),1500);
+    setTimeout(()=>loadPreferencesFromFB(_signedInUser.id),1500);
+    // Load settings (accent color, dark mode) from Firebase so they carry across devices
+    if(FB_READY) setTimeout(async()=>{
+      try{
+        const snap=await fbRef('users/'+_signedInUser.id+'/settings').once('value');
+        if(snap&&snap.exists()){
+          const s=snap.val();
+          const users=getUsers(), idx=users.findIndex(u=>u.id===_signedInUser.id);
+          if(idx>=0){
+            users[idx].settings={...users[idx].settings,...s};
+            saveUsers(users);
+            applyUserTheme(users[idx]);
+          }
+        }
+      }catch(e){}
+    },1500);
+  }
 }
 
 async function createProfile(){
@@ -1587,14 +1634,14 @@ async function changePassword(resend){
   const changeBtn=document.getElementById('pwChangeBtn');
 
   if(!resend){
-    if(!oldPw||!newPw){msg.style.display='block';msg.style.color='#e05c2a';msg.textContent='Fill in both fields.';return;}
-    if(newPw.length<6){msg.style.display='block';msg.style.color='#e05c2a';msg.textContent='New password must be at least 6 characters.';return;}
+    if(!oldPw||!newPw){msg.style.display='block';msg.style.color='#7c3aed';msg.textContent='Fill in both fields.';return;}
+    if(newPw.length<6){msg.style.display='block';msg.style.color='#7c3aed';msg.textContent='New password must be at least 6 characters.';return;}
     const users=getUsers(), id=localStorage.getItem('currentUser');
     const idx=users.findIndex(u=>u.id===id);
     if(idx<0) return;
     const oldHash=await hashPassword(oldPw);
     if(users[idx].pwHash && users[idx].pwHash!==oldHash){
-      msg.style.display='block';msg.style.color='#e05c2a';msg.textContent='Current password is incorrect.';return;
+      msg.style.display='block';msg.style.color='#7c3aed';msg.textContent='Current password is incorrect.';return;
     }
     // Pre-hash new password and hold it
     _pendingPwHash=await hashPassword(newPw);
@@ -1619,7 +1666,7 @@ async function changePassword(resend){
       msg.textContent='📧 Code sent to '+cu.email;
     } catch(e){
       // Email failed — fall back to showing code on screen
-      msg.style.color='#e05c2a';
+      msg.style.color='#7c3aed';
       msg.textContent='⚠️ Email failed. Your code is: '+code+' (expires in 10 min)';
       console.error('EmailJS error:',e);
     }
@@ -1640,13 +1687,13 @@ function confirmPasswordChange(){
   const msg=document.getElementById('pwChangeMsg');
   const stored=JSON.parse(localStorage.getItem('pwVerify')||'null');
 
-  if(!stored){msg.style.display='block';msg.style.color='#e05c2a';msg.textContent='No pending verification. Try again.';return;}
+  if(!stored){msg.style.display='block';msg.style.color='#7c3aed';msg.textContent='No pending verification. Try again.';return;}
   if(Date.now()>stored.expiry){
-    msg.style.display='block';msg.style.color='#e05c2a';msg.textContent='Code expired. Request a new one.';
+    msg.style.display='block';msg.style.color='#7c3aed';msg.textContent='Code expired. Request a new one.';
     cancelPasswordVerify();return;
   }
   if(entered!==stored.code){
-    msg.style.display='block';msg.style.color='#e05c2a';msg.textContent='Wrong code. Check your email and try again.';return;
+    msg.style.display='block';msg.style.color='#7c3aed';msg.textContent='Wrong code. Check your email and try again.';return;
   }
 
   // Code correct — apply the new password
@@ -1683,10 +1730,10 @@ async function forgotSendCode(resend){
   const email=resend ? _forgotEmail : (emailEl?.value||'').trim().toLowerCase();
 
   if(!resend){
-    if(!email){msg1.style.display='block';msg1.style.color='#e05c2a';msg1.textContent='Enter your email address.';return;}
+    if(!email){msg1.style.display='block';msg1.style.color='#7c3aed';msg1.textContent='Enter your email address.';return;}
     // Check account exists
     const user=getUsers().find(u=>u.email===email);
-    if(!user){msg1.style.display='block';msg1.style.color='#e05c2a';msg1.textContent='No account found for that email.';return;}
+    if(!user){msg1.style.display='block';msg1.style.color='#7c3aed';msg1.textContent='No account found for that email.';return;}
     _forgotEmail=email;
   }
 
@@ -1732,19 +1779,19 @@ async function forgotConfirmReset(){
   const newPw2=(document.getElementById('forgotNewPw2')?.value||'');
   const msg=document.getElementById('forgotMsg2');
 
-  if(!code||!newPw||!newPw2){msg.style.display='block';msg.style.color='#e05c2a';msg.textContent='Fill in all fields.';return;}
-  if(newPw.length<6){msg.style.display='block';msg.style.color='#e05c2a';msg.textContent='Password must be at least 6 characters.';return;}
-  if(newPw!==newPw2){msg.style.display='block';msg.style.color='#e05c2a';msg.textContent='Passwords don\'t match.';return;}
+  if(!code||!newPw||!newPw2){msg.style.display='block';msg.style.color='#7c3aed';msg.textContent='Fill in all fields.';return;}
+  if(newPw.length<6){msg.style.display='block';msg.style.color='#7c3aed';msg.textContent='Password must be at least 6 characters.';return;}
+  if(newPw!==newPw2){msg.style.display='block';msg.style.color='#7c3aed';msg.textContent='Passwords don\'t match.';return;}
 
   const stored=JSON.parse(localStorage.getItem('forgotVerify')||'null');
-  if(!stored){msg.style.display='block';msg.style.color='#e05c2a';msg.textContent='No pending reset. Go back and request a new code.';return;}
-  if(Date.now()>stored.expiry){msg.style.display='block';msg.style.color='#e05c2a';msg.textContent='Code expired. Resend a new one.';return;}
-  if(code!==stored.code){msg.style.display='block';msg.style.color='#e05c2a';msg.textContent='Wrong code — check your email and try again.';return;}
+  if(!stored){msg.style.display='block';msg.style.color='#7c3aed';msg.textContent='No pending reset. Go back and request a new code.';return;}
+  if(Date.now()>stored.expiry){msg.style.display='block';msg.style.color='#7c3aed';msg.textContent='Code expired. Resend a new one.';return;}
+  if(code!==stored.code){msg.style.display='block';msg.style.color='#7c3aed';msg.textContent='Wrong code — check your email and try again.';return;}
 
   // Apply new password
   const users=getUsers();
   const idx=users.findIndex(u=>u.email===stored.email);
-  if(idx<0){msg.style.display='block';msg.style.color='#e05c2a';msg.textContent='Account not found.';return;}
+  if(idx<0){msg.style.display='block';msg.style.color='#7c3aed';msg.textContent='Account not found.';return;}
   users[idx].pwHash=await hashPassword(newPw);
   saveUsers(users);
   localStorage.removeItem('forgotVerify');
@@ -1764,7 +1811,7 @@ async function forgotConfirmReset(){
 function signOut(){
   localStorage.removeItem('currentUser');
   applyDark(false,false);
-  applyAccent('#e05c2a',false);
+  applyAccent('#7c3aed',false);
   document.getElementById('loginModal').style.display='flex';
   closePanel();
   updateHeaderUser();
@@ -1845,7 +1892,7 @@ async function renderGroupMealsSection(){
     } else {
       picks.sort((a,b)=>b.time-a.time).forEach(p=>{
         html+='<div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px">'
-          +'<span style="width:28px;height:28px;border-radius:50%;background:'+(p.color||'#e05c2a')+';display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:11px;flex-shrink:0">'+(p.name||'?')[0].toUpperCase()+'</span>'
+          +'<span style="width:28px;height:28px;border-radius:50%;background:'+(p.color||'#7c3aed')+';display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:11px;flex-shrink:0">'+(p.name||'?')[0].toUpperCase()+'</span>'
           +'<span><b>'+(p.name||'Someone')+'</b> → '+p.restaurant+'</span></div>';
       });
     }
@@ -1864,7 +1911,7 @@ async function renderGroupMealsSection(){
     } else {
       picks.sort((a,b)=>b.time-a.time).forEach(p=>{
         html+='<div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px">'
-          +'<span style="width:28px;height:28px;border-radius:50%;background:'+(p.color||'#e05c2a')+';display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:11px;flex-shrink:0">'+(p.name||'?')[0].toUpperCase()+'</span>'
+          +'<span style="width:28px;height:28px;border-radius:50%;background:'+(p.color||'#7c3aed')+';display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:11px;flex-shrink:0">'+(p.name||'?')[0].toUpperCase()+'</span>'
           +'<span><b>'+(p.name||'Someone')+'</b> → '+p.restaurant+'</span></div>';
       });
     }
@@ -1893,7 +1940,7 @@ function renderProfilePanel(){
     <!-- EDIT PROFILE CARD -->
     <div class="panel-section">
       <div class="panel-section-title">✏️ Edit Profile</div>
-      <div style="background:var(--accent-light);border:1.5px solid rgba(224,92,42,0.18);border-radius:14px;padding:16px;">
+      <div style="background:var(--accent-light);border:1.5px solid rgba(124,58,237,0.18);border-radius:14px;padding:16px;">
 
         <!-- Avatar + photo upload -->
         <div style="display:flex;flex-direction:column;align-items:center;gap:8px;margin-bottom:16px;">
@@ -1949,7 +1996,7 @@ function renderProfilePanel(){
         <div id="profileInfoMsg" style="font-size:0.77rem;display:none;text-align:center;margin-bottom:10px;"></div>
 
         <!-- Divider -->
-        <div style="border-top:1px solid rgba(224,92,42,0.18);margin-bottom:12px;"></div>
+        <div style="border-top:1px solid rgba(124,58,237,0.18);margin-bottom:12px;"></div>
 
         <!-- Password -->
         <div style="font-size:0.7rem;font-weight:800;color:var(--accent);text-transform:uppercase;letter-spacing:0.07em;margin-bottom:8px;">🔑 Change Password</div>
@@ -1976,7 +2023,7 @@ function renderProfilePanel(){
           <div id="pwChangeMsg" style="font-size:0.77rem;display:none;margin-top:2px;"></div>
         </div>
 
-        <div style="border-top:1px solid rgba(224,92,42,0.18);margin:14px 0 12px;"></div>
+        <div style="border-top:1px solid rgba(124,58,237,0.18);margin:14px 0 12px;"></div>
 
         <!-- DIETARY RESTRICTIONS (Feature 4) -->
         <div style="font-size:0.7rem;font-weight:800;color:var(--accent);text-transform:uppercase;letter-spacing:0.07em;margin-bottom:8px;">🥗 Dietary Preferences</div>
@@ -2008,7 +2055,7 @@ function renderProfilePanel(){
       return `
         <div class="panel-section">
           <div class="panel-section-title">🏢 ${comp.name}</div>
-          <div style="background:var(--accent-light);border:1.5px solid rgba(224,92,42,0.18);border-radius:12px;padding:12px;">
+          <div style="background:var(--accent-light);border:1.5px solid rgba(124,58,237,0.18);border-radius:12px;padding:12px;">
             <div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:6px;">Share this code with your crew:</div>
             <div style="font-size:1.1rem;font-weight:900;letter-spacing:0.15em;color:var(--accent);text-align:center;padding:8px;background:var(--card);border-radius:9px;border:1.5px dashed var(--accent);cursor:pointer;" onclick="navigator.clipboard.writeText('${comp.code}').then(()=>showToast('Code copied!'))">${comp.code}</div>
             <div style="font-size:0.68rem;color:var(--text-muted);text-align:center;margin-top:4px;">Tap to copy</div>
@@ -2023,22 +2070,51 @@ function renderProfilePanel(){
       <div class="panel-section-title">👥 My Groups</div>
       ${(()=>{
         const myGroups=getMyGroups();
-        const groupHtml=myGroups.length?myGroups.map(g=>{
-          const members=getGroupMembers(g.id);
-          return `<div class="crew-card" style="margin-bottom:8px;">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
-              <span style="font-weight:700;font-size:0.86rem;">${g.name}</span>
-              <span style="font-size:0.68rem;color:var(--accent);font-weight:700;font-family:monospace;cursor:pointer;" onclick="navigator.clipboard.writeText('${g.code}').then(()=>showToast('Code copied!'))">${g.code}</span>
-            </div>
-            <div style="font-size:0.75rem;color:var(--text-muted);">${members.length} member${members.length!==1?'s':''}</div>
-            <button class="btn btn-sm btn-danger" style="margin-top:6px;font-size:0.72rem;" onclick="leaveGroup('${g.id}');renderProfilePanel();">Leave</button>
-          </div>`;
-        }).join(''):`<div style="font-size:0.82rem;color:var(--text-muted);">No groups yet.</div>`;
+        const compId=cu.companyId||null;
+        const compGroups=myGroups.filter(g=>compId&&g.companyId===compId);
+        const personalGroups=myGroups.filter(g=>!compId||g.companyId!==compId);
+        let groupHtml='';
+        if(compGroups.length){
+          groupHtml+='<div style="font-size:0.7rem;font-weight:800;color:#7c3aed;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:5px;">Company Groups</div>';
+          groupHtml+=compGroups.map(g=>{
+            const members=getGroupMembers(g.id);
+            return `<div class="crew-card" style="margin-bottom:8px;border-color:rgba(124,58,237,0.25);">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+                <span style="font-weight:700;font-size:0.86rem;">${g.name} <span style="font-size:0.65rem;background:rgba(124,58,237,0.12);color:#7c3aed;padding:1px 6px;border-radius:8px;">company</span></span>
+                <span style="font-size:0.68rem;color:var(--accent);font-weight:700;font-family:monospace;cursor:pointer;" onclick="navigator.clipboard.writeText('${g.code}').then(()=>showToast('Code copied!'))">${g.code}</span>
+              </div>
+              <div style="font-size:0.75rem;color:var(--text-muted);">${members.length} member${members.length!==1?'s':''}</div>
+              <button class="btn btn-sm btn-danger" style="margin-top:6px;font-size:0.72rem;" onclick="leaveGroup('${g.id}');renderProfilePanel();">Leave</button>
+            </div>`;
+          }).join('');
+        }
+        if(personalGroups.length){
+          if(compGroups.length) groupHtml+='<div style="font-size:0.7rem;font-weight:800;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;margin:8px 0 5px;">Personal Groups</div>';
+          groupHtml+=personalGroups.map(g=>{
+            const members=getGroupMembers(g.id);
+            return `<div class="crew-card" style="margin-bottom:8px;">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+                <span style="font-weight:700;font-size:0.86rem;">${g.name}</span>
+                <span style="font-size:0.68rem;color:var(--accent);font-weight:700;font-family:monospace;cursor:pointer;" onclick="navigator.clipboard.writeText('${g.code}').then(()=>showToast('Code copied!'))">${g.code}</span>
+              </div>
+              <div style="font-size:0.75rem;color:var(--text-muted);">${members.length} member${members.length!==1?'s':''}</div>
+              <button class="btn btn-sm btn-danger" style="margin-top:6px;font-size:0.72rem;" onclick="leaveGroup('${g.id}');renderProfilePanel();">Leave</button>
+            </div>`;
+          }).join('');
+        }
+        if(!myGroups.length) groupHtml='<div style="font-size:0.82rem;color:var(--text-muted);">No groups yet.</div>';
+        const companyCheckbox=compId?`
+          <label style="display:flex;align-items:center;gap:7px;font-size:0.77rem;color:var(--text-muted);margin-top:6px;cursor:pointer;">
+            <input type="checkbox" id="makeCompanyGroupChk" style="accent-color:#7c3aed;width:15px;height:15px;"/>
+            Make this a company group (visible to all company members)
+          </label>`:'';
         return `${groupHtml}
+          <div id="companyGroupsDiscoverEl" style="margin-bottom:8px;"></div>
           <div style="margin-top:9px;display:flex;gap:7px;">
             <input class="input" id="newGroupName" type="text" placeholder="Group name" style="flex:1;font-size:0.82rem;"/>
             <button class="btn btn-ghost btn-sm" onclick="createGroupFromPanel()">Create</button>
           </div>
+          ${companyCheckbox}
           <div style="display:flex;gap:7px;margin-top:6px;">
             <input class="input" id="joinGroupCode" type="text" placeholder="Join code" style="flex:1;font-size:0.82rem;font-family:monospace;"/>
             <button class="btn btn-ghost btn-sm" onclick="joinGroupFromPanel()">Join</button>
@@ -2052,18 +2128,66 @@ function renderProfilePanel(){
     <!-- USUAL ORDERS -->
     <div class="panel-section">
       <div class="panel-section-title">🍽️ My Usual Orders</div>
-      <div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:9px;">What do you usually get at each place?</div>
+      <div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:9px;">What do you usually get at each place? Enter anything — multiple items, notes, etc.</div>
       ${getRestaurants().slice(0,8).map(r=>`
         <div style="margin-bottom:7px;">
           <label style="font-size:0.7rem;font-weight:700;color:var(--text-muted);">${r.name}</label>
-          <input class="input" style="font-size:0.8rem;" type="text" value="${(cu.orders?.[r.name]||'').replace(/"/g,'&quot;')}" onchange="saveOrder('${r.name.replace(/'/g,"\\'")}',this.value)" placeholder="Your usual…"/>
+          <input class="input" style="font-size:0.8rem;" type="text" value="${(cu.orders?.[r.name]||'').replace(/"/g,'&quot;')}" onchange="saveOrder('${r.name.replace(/'/g,"\'")}',this.value)" placeholder="Your usual…"/>
         </div>`).join('')}
     </div>
-  `;
+
+    <!-- MY PREFERENCES -->
+    <div class="panel-section">
+      <div class="panel-section-title">⭐ My Preferences</div>
+      <div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:9px;">Restaurants you enjoy or wouldn't mind going to — your crew can see these!</div>
+      <div id="preferencesTagsEl" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;min-height:24px;">
+        ${(()=>{
+          const prefs=cu.preferences||[];
+          return prefs.length
+            ? prefs.map(p=>`<span style="display:inline-flex;align-items:center;gap:4px;background:rgba(124,58,237,0.12);color:#7c3aed;border:1.5px solid rgba(124,58,237,0.25);border-radius:20px;padding:3px 10px;font-size:0.76rem;font-weight:700;">${p}<button onclick="removePreference('${p.replace(/'/g,\`\\'\`)}');renderPreferencesUI();" style="background:none;border:none;cursor:pointer;color:#7c3aed;font-size:0.82rem;padding:0 0 0 2px;">×</button></span>`).join('')
+            : '<span style="font-size:0.78rem;color:var(--text-muted);font-style:italic;">None yet — add some below</span>';
+        })()}
+      </div>
+      <div style="display:flex;gap:7px;">
+        <input class="input" id="newPrefInput" type="text" placeholder="Add a restaurant preference…" style="flex:1;font-size:0.82rem;" onkeydown="if(event.key==='Enter'){addPreference(this.value);this.value='';}"/>
+        <button class="btn btn-ghost btn-sm" onclick="const el=document.getElementById('newPrefInput');addPreference(el.value);el.value='';">Add</button>
+      </div>
+    </div>
+
+    <!-- CREW PREFERENCES -->
+    ${cu.companyId?`
+    <div class="panel-section">
+      <div class="panel-section-title" style="display:flex;align-items:center;justify-content:space-between;">
+        <span>👀 Crew Preferences</span>
+        <button class="btn btn-sm btn-ghost" style="font-size:0.7rem;padding:3px 9px;" onclick="loadCrewPreferences()">Refresh</button>
+      </div>
+      <div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:9px;">What your company crew likes to eat</div>
+      <div id="crewPreferencesEl"><div style="color:var(--text-muted);font-size:0.78rem;font-style:italic;">Loading crew preferences…</div></div>
+    </div>`:''}
+  `;  `;
   // Async: load group meals into the placeholder
   renderGroupMealsSection();
   // Async: load company members from Firebase
   loadCompanyMembersFromFB();
+  // Async: load crew preferences
+  if(getCurrentUser()?.companyId) loadCrewPreferences();
+  // Async: load company groups for discovery
+  if(getCurrentUser()?.companyId) loadCompanyGroupsForPanel();
+}
+
+async function loadCompanyGroupsForPanel(){
+  const cu=getCurrentUser(); if(!cu||!cu.companyId) return;
+  const el=document.getElementById('companyGroupsDiscoverEl'); if(!el) return;
+  const compGroups=await loadCompanyGroupsFromFB();
+  if(!compGroups.length){ el.innerHTML=''; return; }
+  const myGroups=getMyGroups();
+  const notJoined=compGroups.filter(g=>!myGroups.find(m=>m.id===g.id));
+  if(!notJoined.length){ el.innerHTML=''; return; }
+  el.innerHTML='<div style="font-size:0.7rem;font-weight:800;color:#7c3aed;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:5px;">Available Company Groups</div>'
+    +notJoined.map(g=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:0.82rem;">
+      <span style="font-weight:700;">${g.name}</span>
+      <button class="btn btn-sm btn-ghost" style="font-size:0.7rem;padding:3px 9px;" onclick="joinGroupFB('${g.code}').then(r=>{if(r){showToast('Joined '+r.name+'!');refreshGroupSelector();renderProfilePanel();}})">Join</button>
+    </div>`).join('');
 }
 
 
@@ -2075,13 +2199,13 @@ function saveProfileInfo(){
   const email=(document.getElementById('editEmail')?.value||'').trim().toLowerCase();
   const city=document.getElementById('editCity')?.value||'';
   const msg=document.getElementById('profileInfoMsg');
-  if(!name){msg.style.display='block';msg.style.color='#e05c2a';msg.textContent='Name cannot be empty.';return;}
+  if(!name){msg.style.display='block';msg.style.color='#7c3aed';msg.textContent='Name cannot be empty.';return;}
   const users=getUsers(), id=localStorage.getItem('currentUser');
   const idx=users.findIndex(u=>u.id===id);
   if(idx<0) return;
   // Check email unique (if changed)
   if(email && email!==users[idx].email && users.find(u=>u.email===email)){
-    msg.style.display='block';msg.style.color='#e05c2a';msg.textContent='That email is already in use.';return;
+    msg.style.display='block';msg.style.color='#7c3aed';msg.textContent='That email is already in use.';return;
   }
   users[idx].name=name;
   if(email) users[idx].email=email;
@@ -2106,12 +2230,12 @@ async function loadCompanyMembersFromFB(){
       if(snap&&snap.exists()){
         snap.forEach(child=>{
           const d=child.val();
-          members.push({id:child.key, name:d.name||'?', color:d.color||'#e05c2a'});
+          members.push({id:child.key, name:d.name||'?', color:d.color||'#7c3aed'});
         });
       }
     }
     // Fall back to local if Firebase had nothing
-    if(!members.length) members=getUsers().filter(u=>u.companyId===comp.id).map(u=>({id:u.id,name:u.name,color:u.color||'#e05c2a'}));
+    if(!members.length) members=getUsers().filter(u=>u.companyId===comp.id).map(u=>({id:u.id,name:u.name,color:u.color||'#7c3aed'}));
     const isOwner=(comp.createdBy===cu.email||comp.createdBy===cu.id);
     el.innerHTML=`
       <div style="font-size:0.7rem;font-weight:800;color:var(--text-muted);text-transform:uppercase;margin-bottom:6px;">Members (${members.length})</div>
@@ -2206,28 +2330,50 @@ function saveOrder(restName, val){
   if(!users[idx].orders) users[idx].orders={};
   users[idx].orders[restName]=val;
   saveUsers(users);
+  // Sync to Firebase
+  if(FB_READY && id){
+    const ordersObj=users[idx].orders;
+    fbRef('users/'+id+'/orders').set(ordersObj).catch(()=>{});
+  }
+}
+
+// Load a user's orders from Firebase and merge into local
+async function loadOrdersFromFB(userId){
+  if(!FB_READY||!userId) return;
+  try {
+    const snap=await fbRef('users/'+userId+'/orders').once('value');
+    if(!snap||!snap.exists()) return;
+    const fbOrders=snap.val()||{};
+    const users=getUsers(), idx=users.findIndex(u=>u.id===userId);
+    if(idx<0) return;
+    if(!users[idx].orders) users[idx].orders={};
+    // Merge: Firebase values take precedence for existing keys
+    users[idx].orders=Object.assign({},users[idx].orders,fbOrders);
+    saveUsers(users);
+  } catch(e){ console.warn('loadOrdersFromFB error:',e); }
 }
 
 async function joinCompanyFromPanel(){
   const code=(document.getElementById('joinCompCodePanel')?.value||'').trim();
   const msg=document.getElementById('joinCompPanelMsg');
-  if(!code){if(msg){msg.style.display='block';msg.style.color='#e05c2a';msg.textContent='Paste the invite code first.';}return;}
+  if(!code){if(msg){msg.style.display='block';msg.style.color='#7c3aed';msg.textContent='Paste the invite code first.';}return;}
   const btn=document.querySelector('[onclick="joinCompanyFromPanel()"]');
   if(btn){btn.textContent='⏳ Please wait…';btn.disabled=true;}
   const result=await joinCompanyFB(code);
   if(btn){btn.textContent='Join';btn.disabled=false;}
-  if(!result){if(msg){msg.style.display='block';msg.style.color='#e05c2a';msg.textContent='Company not found — check the code.';}return;}
+  if(!result){if(msg){msg.style.display='block';msg.style.color='#7c3aed';msg.textContent='Company not found — check the code.';}return;}
   renderProfilePanel();
   showToast('🎉 Joined '+result.name+'!');
 }
 
 async function createGroupFromPanel(){
   const name=(document.getElementById('newGroupName')?.value||'').trim();
+  const isCompanyGroup=document.getElementById('makeCompanyGroupChk')?.checked||false;
   const msg=document.getElementById('groupPanelMsg');
-  if(!name){if(msg){msg.style.display='block';msg.style.color='#e05c2a';msg.textContent='Enter a group name.';}return;}
+  if(!name){if(msg){msg.style.display='block';msg.style.color='#7c3aed';msg.textContent='Enter a group name.';}return;}
   const btn=document.querySelector('[onclick="createGroupFromPanel()"]');
   if(btn){btn.textContent='⏳ Please wait…';btn.disabled=true;}
-  const g=await createGroupFB(name);
+  const g=await createGroupFB(name, isCompanyGroup);
   if(btn){btn.textContent='Create';btn.disabled=false;}
   if(g){
     navigator.clipboard.writeText(g.code).catch(()=>{});
@@ -2239,12 +2385,12 @@ async function createGroupFromPanel(){
 async function joinGroupFromPanel(){
   const code=(document.getElementById('joinGroupCode')?.value||'').trim();
   const msg=document.getElementById('groupPanelMsg');
-  if(!code){if(msg){msg.style.display='block';msg.style.color='#e05c2a';msg.textContent='Paste the invite code first.';}return;}
+  if(!code){if(msg){msg.style.display='block';msg.style.color='#7c3aed';msg.textContent='Paste the invite code first.';}return;}
   const btn=document.querySelector('[onclick="joinGroupFromPanel()"]');
   if(btn){btn.textContent='⏳ Please wait…';btn.disabled=true;}
   const g=await joinGroupFB(code);
   if(btn){btn.textContent='Join';btn.disabled=false;}
-  if(!g){if(msg){msg.style.display='block';msg.style.color='#e05c2a';msg.textContent='Group not found — try the short code (e.g. AB-CD).';}return;}
+  if(!g){if(msg){msg.style.display='block';msg.style.color='#7c3aed';msg.textContent='Group not found — try the short code (e.g. AB-CD).';}return;}
   showToast('🎉 Joined group "'+g.name+'"!');
   refreshGroupSelector();
   renderProfilePanel();
@@ -2262,7 +2408,7 @@ function renderSettingsPanel(){
   document.getElementById('panelTitle').textContent='⚙️ Settings';
   const dark=document.body.classList.contains('dark');
   const cu=getCurrentUser();
-  const accent=cu?.settings?.accentColor||'#e05c2a';
+  const accent=cu?.settings?.accentColor||'#7c3aed';
   document.getElementById('panelBody').innerHTML=`
     <div class="panel-section">
       <div class="panel-section-title">🎨 Appearance</div>
@@ -2272,9 +2418,14 @@ function renderSettingsPanel(){
           <label class="toggle"><input type="checkbox" ${dark?'checked':''} onchange="applyDark(this.checked)"><span class="toggle-slider"></span></label>
         </div>
         <div class="setting-row">
-          <div class="setting-info"><div class="setting-label">Accent Color</div><div class="setting-desc">Pick your vibe</div></div>
-          <div style="display:flex;gap:5px;">
-            ${AVATAR_COLORS.map(c=>`<div onclick="applyAccent('${c}')" style="width:20px;height:20px;border-radius:50%;background:${c};cursor:pointer;border:2.5px solid ${c===accent?'#333':'transparent'};transition:all 0.15s;"></div>`).join('')}
+          <div class="setting-info"><div class="setting-label">Accent Color</div><div class="setting-desc">Pick your vibe — or use the wheel</div></div>
+          <div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap;">
+            ${AVATAR_COLORS.map(c=>`<div onclick="applyAccent('${c}')" style="width:22px;height:22px;border-radius:50%;background:${c};cursor:pointer;border:2.5px solid ${c===accent?'#fff':'transparent'};box-shadow:${c===accent?'0 0 0 2px #333':'none'};transition:all 0.15s;flex-shrink:0;"></div>`).join('')}
+            <label title="Custom color" style="cursor:pointer;flex-shrink:0;">
+              <div style="width:22px;height:22px;border-radius:50%;background:conic-gradient(red,yellow,lime,cyan,blue,magenta,red);border:2px solid var(--border);overflow:hidden;display:flex;align-items:center;justify-content:center;">
+                <input type="color" value="${accent}" style="opacity:0;width:100%;height:100%;cursor:pointer;border:none;padding:0;" oninput="applyAccent(this.value)" title="Custom color"/>
+              </div>
+            </label>
           </div>
         </div>
       </div>
@@ -2423,7 +2574,7 @@ function fireConfetti(){
   canvas.height=window.innerHeight;
   document.body.appendChild(canvas);
   const ctx=canvas.getContext('2d');
-  const colors=['#e05c2a','#f97316','#fbbf24','#34d399','#60a5fa','#c084fc','#f472b6','#fff'];
+  const colors=['#7c3aed','#a78bfa','#c4b5fd','#f97316','#fbbf24','#34d399','#60a5fa','#f472b6','#fff'];
   const pieces=Array.from({length:60},()=>({
     x:Math.random()*canvas.width,
     y:-20-Math.random()*80,
@@ -2643,15 +2794,15 @@ function shareResult(name){
   const canvas=document.createElement('canvas');
   canvas.width=400; canvas.height=300;
   const ctx=canvas.getContext('2d');
-  // Orange background
-  ctx.fillStyle='#e05c2a';
+  // Purple background
+  ctx.fillStyle='#7c3aed';
   ctx.fillRect(0,0,400,300);
   // White rounded rect
   ctx.fillStyle='#ffffff';
   roundRect(ctx,30,40,340,220,18);
   ctx.fill();
   // "Lunch Lotto" small orange
-  ctx.fillStyle='#e05c2a';
+  ctx.fillStyle='#7c3aed';
   ctx.font='bold 16px -apple-system,sans-serif';
   ctx.textAlign='center';
   ctx.fillText('🎰 Lunch Lotto',200,80);
@@ -2882,11 +3033,130 @@ function addRestaurant(){
       if(!users[idx].orders) users[idx].orders={};
       users[idx].orders[name]=usual;
       saveUsers(users);
+      if(FB_READY && id) fbRef('users/'+id+'/orders').set(users[idx].orders).catch(()=>{});
     }
+  }
+  // Sync new restaurant to company Firebase node
+  const _cu=getCurrentUser();
+  if(FB_READY && _cu?.companyId){
+    fbRef('companies/'+_cu.companyId+'/restaurants/'+name).set({name,cuisine,area,dietary:[],addedBy:_cu.id,addedAt:Date.now()}).catch(()=>{});
   }
   ['newName','newCuisine','newUsual'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
   renderRestaurants();
   showToast('Added '+name+'!');
+}
+
+// Sync restaurants with company Firebase node (push local + pull company restaurants)
+async function syncRestaurantsWithCompany(){
+  const cu=getCurrentUser(); if(!cu||!cu.companyId||!FB_READY) return;
+  try {
+    const local=getRestaurants();
+    // Push each local restaurant to Firebase (won't overwrite if already there)
+    for(const r of local){
+      const snap=await fbRef('companies/'+cu.companyId+'/restaurants/'+r.name).once('value');
+      if(!snap||!snap.exists()){
+        await fbRef('companies/'+cu.companyId+'/restaurants/'+r.name).set({name:r.name,cuisine:r.cuisine||'',area:r.area||'',dietary:r.dietary||[],addedBy:cu.id,addedAt:Date.now()});
+      }
+    }
+    // Pull Firebase restaurants and merge into local (deduplicate by name)
+    const snap=await fbRef('companies/'+cu.companyId+'/restaurants').once('value');
+    if(!snap||!snap.exists()) return;
+    const fbRests=[];
+    snap.forEach(child=>{ fbRests.push(child.val()); });
+    const merged=[...local];
+    for(const fr of fbRests){
+      if(!fr.name) continue;
+      if(!merged.find(r=>r.name.toLowerCase()===fr.name.toLowerCase())){
+        merged.push({name:fr.name,cuisine:fr.cuisine||'',area:fr.area||'',dietary:fr.dietary||[]});
+      }
+    }
+    if(merged.length>local.length) saveRestaurants(merged);
+  } catch(e){ console.warn('syncRestaurantsWithCompany error:',e); }
+}
+
+// ═══════════════════════════════════════════
+//  USER PREFERENCES
+// ═══════════════════════════════════════════
+function getPreferences(){
+  const cu=getCurrentUser(); if(!cu) return [];
+  return cu.preferences||[];
+}
+
+function addPreference(pref){
+  const p=pref.trim(); if(!p) return;
+  const users=getUsers(), id=localStorage.getItem('currentUser');
+  const idx=users.findIndex(u=>u.id===id);
+  if(idx<0) return;
+  if(!users[idx].preferences) users[idx].preferences=[];
+  if(!users[idx].preferences.includes(p)) users[idx].preferences.push(p);
+  saveUsers(users);
+  // Sync to Firebase
+  if(FB_READY && id) fbRef('users/'+id+'/preferences').set(users[idx].preferences).catch(()=>{});
+  renderPreferencesUI();
+}
+
+function removePreference(pref){
+  const users=getUsers(), id=localStorage.getItem('currentUser');
+  const idx=users.findIndex(u=>u.id===id);
+  if(idx<0) return;
+  users[idx].preferences=(users[idx].preferences||[]).filter(p=>p!==pref);
+  saveUsers(users);
+  if(FB_READY && id) fbRef('users/'+id+'/preferences').set(users[idx].preferences).catch(()=>{});
+  renderPreferencesUI();
+}
+
+function renderPreferencesUI(){
+  const el=document.getElementById('preferencesTagsEl'); if(!el) return;
+  const prefs=getPreferences();
+  el.innerHTML=prefs.length
+    ? prefs.map(p=>`<span style="display:inline-flex;align-items:center;gap:4px;background:rgba(124,58,237,0.12);color:#7c3aed;border:1.5px solid rgba(124,58,237,0.25);border-radius:20px;padding:3px 10px;font-size:0.76rem;font-weight:700;">${p}<button onclick="removePreference('${p.replace(/'/g,"\'")}');renderPreferencesUI();" style="background:none;border:none;cursor:pointer;color:#7c3aed;font-size:0.82rem;padding:0 0 0 2px;">×</button></span>`).join('')
+    : '<span style="font-size:0.78rem;color:var(--text-muted);font-style:italic;">None yet — add some below</span>';
+}
+
+async function loadPreferencesFromFB(userId){
+  if(!FB_READY||!userId) return;
+  try {
+    const snap=await fbRef('users/'+userId+'/preferences').once('value');
+    if(!snap||!snap.exists()) return;
+    const fbPrefs=snap.val()||[];
+    const users=getUsers(), idx=users.findIndex(u=>u.id===userId);
+    if(idx<0) return;
+    const merged=[...new Set([...(users[idx].preferences||[]),...(Array.isArray(fbPrefs)?fbPrefs:[])])];
+    users[idx].preferences=merged;
+    saveUsers(users);
+  } catch(e){}
+}
+
+async function loadCrewPreferences(){
+  const cu=getCurrentUser(); if(!cu||!cu.companyId||!FB_READY) return;
+  const el=document.getElementById('crewPreferencesEl'); if(!el) return;
+  el.innerHTML='<div style="color:var(--text-muted);font-size:0.78rem;">Loading…</div>';
+  try {
+    const membersSnap=await fbRef('companies/'+cu.companyId+'/members').once('value');
+    if(!membersSnap||!membersSnap.exists()){el.innerHTML='<div style="color:var(--text-muted);font-size:0.78rem;">No company members found.</div>';return;}
+    const members=[];
+    membersSnap.forEach(child=>{ members.push({id:child.key,...child.val()}); });
+    const rows=[];
+    for(const m of members){
+      if(m.id===cu.id) continue; // skip self
+      try {
+        const prefSnap=await fbRef('users/'+m.id+'/preferences').once('value');
+        const prefs=prefSnap&&prefSnap.exists()?(prefSnap.val()||[]):[];
+        if(!Array.isArray(prefs)||!prefs.length) continue;
+        const color=m.color||'#7c3aed';
+        rows.push(`<div style="display:flex;align-items:flex-start;gap:9px;padding:7px 0;border-bottom:1px solid var(--border);">
+          <div class="avatar" style="width:28px;height:28px;font-size:0.65rem;background:${color};flex-shrink:0;">${(m.name||'?')[0].toUpperCase()}</div>
+          <div>
+            <div style="font-weight:700;font-size:0.82rem;margin-bottom:4px;">${m.name||'?'}</div>
+            <div style="display:flex;flex-wrap:wrap;gap:4px;">${prefs.map(p=>`<span style="background:rgba(124,58,237,0.1);color:#7c3aed;border-radius:12px;padding:2px 8px;font-size:0.71rem;font-weight:600;">${p}</span>`).join('')}</div>
+          </div>
+        </div>`);
+      } catch(e){}
+    }
+    el.innerHTML=rows.length
+      ? rows.join('')
+      : '<div style="color:var(--text-muted);font-size:0.78rem;font-style:italic;">No crew members have set preferences yet.</div>';
+  } catch(e){ el.innerHTML='<div style="color:var(--text-muted);font-size:0.78rem;">Could not load preferences.</div>'; }
 }
 
 // ═══════════════════════════════════════════
@@ -3053,14 +3323,13 @@ function searchFromAddress(){
   fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(addr)}&limit=1`)
     .then(r=>r.json())
     .then(data=>{
-      if(!data.length){msg.style.color='#e05c2a';msg.textContent='Address not found.';return;}
+      if(!data.length){msg.style.color='#7c3aed';msg.textContent='Address not found.';return;}
       _userCoords={lat:parseFloat(data[0].lat),lng:parseFloat(data[0].lon)};
       msg.style.color='#15803d';msg.textContent='✅ Found location!';
       document.getElementById('locationStatusText').textContent='Using address location';
       runNearbySearch();
-    }).catch(()=>{msg.style.color='#e05c2a';msg.textContent='Lookup failed. Try again.';});
+    }).catch(()=>{msg.style.color='#7c3aed';msg.textContent='Lookup failed. Try again.';});
 }
-
 function addFromDiscover(name, cuisine){
   const restaurants=getRestaurants();
   if(!restaurants.find(r=>r.name.toLowerCase()===name.toLowerCase())){
@@ -3225,7 +3494,7 @@ function init(){
   }
 
   // PWA manifest blob
-  const _manifest={name:"Lunch Lotto",short_name:"Lotto",start_url:".",display:"standalone",background_color:"#faf7f4",theme_color:"#e05c2a",description:"Let fate pick your lunch",icons:[{src:"data:image/png;base64,iVBORw0KGgo=",sizes:"192x192",type:"image/png"}]};
+  const _manifest={name:"Lunch Lotto",short_name:"Lotto",start_url:".",display:"standalone",background_color:"#faf7f4",theme_color:"#7c3aed",description:"Let fate pick your lunch",icons:[{src:"data:image/png;base64,iVBORw0KGgo=",sizes:"192x192",type:"image/png"}]};
   const _mblob=new Blob([JSON.stringify(_manifest)],{type:'application/manifest+json'});
   const _mlink=document.createElement('link');
   _mlink.rel='manifest';_mlink.href=URL.createObjectURL(_mblob);
