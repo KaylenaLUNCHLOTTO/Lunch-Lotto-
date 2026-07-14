@@ -978,16 +978,16 @@ async function getGroupMemberCount(groupId){
 async function recordMealInGroups(restaurantName){
   const cu=getCurrentUser(); if(!cu||!FB_READY) return;
   const week=wk();
+  const mealData={restaurant:restaurantName,name:cu.name||cu.email,color:cu.color||'#e05c2a',time:Date.now()};
+  // Record in each group
   const myGroups=getMyGroups();
   for(const g of myGroups){
-    try {
-      await fbRef('groups/'+g.id+'/meals/'+week+'/'+cu.id).set({
-        restaurant:restaurantName,
-        name:cu.name||cu.email,
-        color:cu.color||'#e05c2a',
-        time:Date.now()
-      });
-    } catch(e){}
+    try { await fbRef('groups/'+g.id+'/meals/'+week+'/'+cu.id).set(mealData); } catch(e){}
+  }
+  // Also record under company so all company members can see it
+  const comp=getMyCompany();
+  if(comp){
+    try { await fbRef('companies/'+comp.id+'/meals/'+week+'/'+cu.id).set(mealData); } catch(e){}
   }
 }
 
@@ -1117,10 +1117,21 @@ function leaveCompany(){
   const compId=users[idx].companyId;
   users[idx].companyId=null;
   saveUsers(users);
-  // Remove from Firebase membership
   if(FB_READY && compId && id) fbRef('companies/'+compId+'/members/'+id).remove().catch(()=>{});
   renderProfilePanel();
   showToast('Left the company. You can rejoin anytime with the invite code.');
+}
+
+async function kickFromCompany(memberId, memberName){
+  if(!confirm('Remove '+memberName+' from the company?')) return;
+  const comp=getMyCompany(); if(!comp) return;
+  // Remove from Firebase
+  if(FB_READY) await fbRef('companies/'+comp.id+'/members/'+memberId).remove().catch(()=>{});
+  // Remove from local users if they exist on this device
+  const users=getUsers(), idx=users.findIndex(u=>u.id===memberId);
+  if(idx>=0){ users[idx].companyId=null; saveUsers(users); }
+  showToast(memberName+' has been removed from the company.');
+  loadCompanyMembersFromFB(); // refresh list
 }
 function getGroupMembers(groupId){
   return getUsers().filter(u=>(u.groupIds||[]).includes(groupId));
@@ -1813,10 +1824,35 @@ function closePanel(){
 async function renderGroupMealsSection(){
   if(!FB_READY) return;
   const cu=getCurrentUser(); if(!cu) return;
+  const comp=getMyCompany();
   const myGroups=getMyGroups();
-  if(!myGroups.length) return;
+  if(!comp && !myGroups.length) return;
   let html='<div style="margin-top:16px">';
   html+='<div style="font-size:13px;font-weight:700;margin-bottom:8px;color:var(--text)">🍽️ This Week\'s Picks</div>';
+
+  // Show company meals (all members across devices)
+  if(comp){
+    let compMeals={};
+    try {
+      const snap=await fbRef('companies/'+comp.id+'/meals/'+wk()).once('value');
+      if(snap&&snap.exists()) compMeals=snap.val();
+    } catch(e){}
+    const picks=Object.values(compMeals);
+    html+='<div style="margin-bottom:12px;background:var(--card);border-radius:10px;padding:10px">';
+    html+='<div style="font-weight:600;margin-bottom:6px">🏢 '+comp.name+'</div>';
+    if(!picks.length){
+      html+='<div style="color:var(--text-muted);font-size:13px">No picks yet this week</div>';
+    } else {
+      picks.sort((a,b)=>b.time-a.time).forEach(p=>{
+        html+='<div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px">'
+          +'<span style="width:28px;height:28px;border-radius:50%;background:'+(p.color||'#e05c2a')+';display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:11px;flex-shrink:0">'+(p.name||'?')[0].toUpperCase()+'</span>'
+          +'<span><b>'+(p.name||'Someone')+'</b> → '+p.restaurant+'</span></div>';
+      });
+    }
+    html+='</div>';
+  }
+
+  // Show individual group meals
   for(const g of myGroups){
     const meals=await getGroupMealsThisWeek(g.id);
     const count=await getGroupMemberCount(g.id);
@@ -1959,7 +1995,6 @@ function renderProfilePanel(){
     <!-- COMPANY -->
     ${(()=>{
       const comp=getMyCompany();
-      const members=getCompanyMembers();
       if(!comp) return `
         <div class="panel-section">
           <div class="panel-section-title">🏢 Company</div>
@@ -1977,13 +2012,7 @@ function renderProfilePanel(){
             <div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:6px;">Share this code with your crew:</div>
             <div style="font-size:1.1rem;font-weight:900;letter-spacing:0.15em;color:var(--accent);text-align:center;padding:8px;background:var(--card);border-radius:9px;border:1.5px dashed var(--accent);cursor:pointer;" onclick="navigator.clipboard.writeText('${comp.code}').then(()=>showToast('Code copied!'))">${comp.code}</div>
             <div style="font-size:0.68rem;color:var(--text-muted);text-align:center;margin-top:4px;">Tap to copy</div>
-            <div style="margin-top:10px;font-size:0.7rem;font-weight:800;color:var(--text-muted);text-transform:uppercase;margin-bottom:6px;">Members (${members.length})</div>
-            ${members.map(m=>`
-              <div class="person-stat-row" style="padding:5px 0;">
-                <div class="avatar" style="width:26px;height:26px;font-size:0.65rem;background:${m.color};flex-shrink:0;">${ini(m.name)}</div>
-                <span style="font-size:0.82rem;font-weight:700;flex:1;">${m.name}</span>
-                ${m.id===cu.id?'<span class="you-pill">You</span>':''}
-              </div>`).join('')}
+            <div id="compMembersList" style="margin-top:10px;"><span style="font-size:0.75rem;color:var(--text-muted);">Loading members…</span></div>
             <button class="btn btn-sm btn-danger" style="width:100%;margin-top:10px;font-size:0.74rem;" onclick="leaveCompany()">Leave Company</button>
           </div>
         </div>`;
@@ -2033,6 +2062,8 @@ function renderProfilePanel(){
   `;
   // Async: load group meals into the placeholder
   renderGroupMealsSection();
+  // Async: load company members from Firebase
+  loadCompanyMembersFromFB();
 }
 
 
@@ -2059,6 +2090,39 @@ function saveProfileInfo(){
   updateHeaderUser();
   msg.style.display='block';msg.style.color='#15803d';msg.textContent='✅ Saved!';
   setTimeout(()=>{if(msg)msg.style.display='none';},2500);
+}
+
+// Load company members from Firebase and render into the profile panel
+async function loadCompanyMembersFromFB(){
+  const el=document.getElementById('compMembersList');
+  if(!el) return;
+  const cu=getCurrentUser();
+  const comp=getMyCompany();
+  if(!comp||!cu) return;
+  try {
+    let members=[];
+    if(FB_READY){
+      const snap=await fbRef('companies/'+comp.id+'/members').once('value');
+      if(snap&&snap.exists()){
+        snap.forEach(child=>{
+          const d=child.val();
+          members.push({id:child.key, name:d.name||'?', color:d.color||'#e05c2a'});
+        });
+      }
+    }
+    // Fall back to local if Firebase had nothing
+    if(!members.length) members=getUsers().filter(u=>u.companyId===comp.id).map(u=>({id:u.id,name:u.name,color:u.color||'#e05c2a'}));
+    const isOwner=(comp.createdBy===cu.email||comp.createdBy===cu.id);
+    el.innerHTML=`
+      <div style="font-size:0.7rem;font-weight:800;color:var(--text-muted);text-transform:uppercase;margin-bottom:6px;">Members (${members.length})</div>
+      ${members.map(m=>`
+        <div class="person-stat-row" style="padding:5px 0;">
+          <div class="avatar" style="width:26px;height:26px;font-size:0.65rem;background:${m.color};flex-shrink:0;">${ini(m.name)}</div>
+          <span style="font-size:0.82rem;font-weight:700;flex:1;">${m.name}</span>
+          ${m.id===cu.id?'<span class="you-pill">You</span>':''}
+          ${isOwner&&m.id!==cu.id?`<button onclick="kickFromCompany('${m.id}','${m.name.replace(/'/g,"\\'")}')" style="background:none;border:none;cursor:pointer;color:#dc2626;font-size:0.75rem;font-weight:700;padding:2px 6px;border-radius:6px;" title="Remove from company">✕</button>`:''}
+        </div>`).join('')}`;
+  } catch(e){ el.innerHTML='<div style="font-size:0.75rem;color:var(--text-muted);">Could not load members.</div>'; }
 }
 
 function editStateChange(){
